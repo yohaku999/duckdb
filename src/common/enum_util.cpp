@@ -170,6 +170,7 @@
 #include "duckdb/optimizer/aggregate_rewrite.hpp"
 #include "duckdb/optimizer/build_probe_side_optimizer.hpp"
 #include "duckdb/optimizer/compressed_materialization.hpp"
+#include "duckdb/optimizer/join_build_deduplication.hpp"
 #include "duckdb/optimizer/join_order/join_order_operator.hpp"
 #include "duckdb/optimizer/relation_statistics/relation_statistics.hpp"
 #include "duckdb/optimizer/remove_unused_columns.hpp"
@@ -3295,6 +3296,25 @@ const char* EnumUtil::ToChars<InterruptMode>(InterruptMode value) {
 template<>
 InterruptMode EnumUtil::FromString<InterruptMode>(const char *value) {
 	return static_cast<InterruptMode>(StringUtil::StringToEnum(GetInterruptModeValues(), 3, "InterruptMode", value));
+}
+
+const StringUtil::EnumStringLiteral *GetJoinBuildDeduplicationModeValues() {
+	static constexpr StringUtil::EnumStringLiteral values[] {
+		{ static_cast<uint32_t>(JoinBuildDeduplicationMode::OFF), "OFF" },
+		{ static_cast<uint32_t>(JoinBuildDeduplicationMode::LOGICAL), "LOGICAL" },
+		{ static_cast<uint32_t>(JoinBuildDeduplicationMode::PHYSICAL), "PHYSICAL" }
+	};
+	return values;
+}
+
+template<>
+const char* EnumUtil::ToChars<JoinBuildDeduplicationMode>(JoinBuildDeduplicationMode value) {
+	return StringUtil::EnumToString(GetJoinBuildDeduplicationModeValues(), 3, "JoinBuildDeduplicationMode", static_cast<uint32_t>(value));
+}
+
+template<>
+JoinBuildDeduplicationMode EnumUtil::FromString<JoinBuildDeduplicationMode>(const char *value) {
+	return static_cast<JoinBuildDeduplicationMode>(StringUtil::StringToEnum(GetJoinBuildDeduplicationModeValues(), 3, "JoinBuildDeduplicationMode", value));
 }
 
 const StringUtil::EnumStringLiteral *GetJoinFilterPushdownModeValues() {
