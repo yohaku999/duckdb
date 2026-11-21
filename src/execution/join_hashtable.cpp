@@ -17,6 +17,8 @@
 #include "duckdb/storage/buffer_manager.hpp"
 #include "duckdb/common/atomic.hpp"
 #include "duckdb/planner/joinside.hpp"
+#include "duckdb/optimizer/join_build_deduplication.hpp"
+#include "duckdb/common/vector/vector_iterator.hpp"
 
 namespace duckdb {
 
@@ -24,6 +26,72 @@ using ValidityBytes = JoinHashTable::ValidityBytes;
 using ScanStructure = JoinHashTable::ScanStructure;
 using ProbeSpill = JoinHashTable::ProbeSpill;
 using ProbeSpillLocalState = JoinHashTable::ProbeSpillLocalAppendState;
+
+class JoinBuildDeduplicationCache {
+public:
+	explicit JoinBuildDeduplicationCache(Allocator &allocator) : entries(allocator.Allocate(CAPACITY * ENTRY_SIZE)) {
+		memset(entries.get(), 0, entries.GetSize());
+	}
+
+	idx_t Filter(Vector &keys, Vector &hashes, const SelectionVector &input, idx_t count, SelectionVector &output) {
+		switch (keys.GetType().InternalType()) {
+		case PhysicalType::INT8:
+			return FilterTyped<int8_t>(keys, hashes, input, count, output);
+		case PhysicalType::INT16:
+			return FilterTyped<int16_t>(keys, hashes, input, count, output);
+		case PhysicalType::INT32:
+			return FilterTyped<int32_t>(keys, hashes, input, count, output);
+		case PhysicalType::INT64:
+			return FilterTyped<int64_t>(keys, hashes, input, count, output);
+		case PhysicalType::UINT8:
+			return FilterTyped<uint8_t>(keys, hashes, input, count, output);
+		case PhysicalType::UINT16:
+			return FilterTyped<uint16_t>(keys, hashes, input, count, output);
+		case PhysicalType::UINT32:
+			return FilterTyped<uint32_t>(keys, hashes, input, count, output);
+		case PhysicalType::UINT64:
+			return FilterTyped<uint64_t>(keys, hashes, input, count, output);
+		default:
+			throw InternalException("Unsupported join build deduplication key");
+		}
+	}
+
+private:
+	template <class T>
+	idx_t FilterTyped(Vector &keys, Vector &hashes, const SelectionVector &input, idx_t count,
+	                  SelectionVector &output) {
+		auto values = keys.Values<T>();
+		auto hash_values = hashes.Values<hash_t>();
+		idx_t result_count = 0;
+		for (idx_t i = 0; i < count; i++) {
+			auto row = input.get_index(i);
+			auto value = values[row];
+			if (!value.IsValid()) {
+				if (!seen_null) {
+					output.set_index(result_count++, row);
+					seen_null = true;
+				}
+				continue;
+			}
+			auto key = static_cast<uint64_t>(value.GetValue());
+			auto slot = hash_values[row].GetValue() & (CAPACITY - 1);
+			auto entry = entries.get() + slot * ENTRY_SIZE;
+			if (Load<bool>(entry) && Load<uint64_t>(entry + sizeof(bool)) == key) {
+				continue;
+			}
+			Store<bool>(true, entry);
+			Store<uint64_t>(key, entry + sizeof(bool));
+			output.set_index(result_count++, row);
+		}
+		return result_count;
+	}
+
+private:
+	static constexpr idx_t CAPACITY = 16384;
+	static constexpr idx_t ENTRY_SIZE = sizeof(uint64_t) + sizeof(bool);
+	AllocatedData entries;
+	bool seen_null = false;
+};
 
 JoinHashTable::SharedState::SharedState()
     : salt_v(LogicalType::UBIGINT), keys_to_compare_sel(STANDARD_VECTOR_SIZE), keys_no_match_sel(STANDARD_VECTOR_SIZE) {
@@ -95,6 +163,11 @@ JoinHashTable::JoinHashTable(ClientContext &context_p, const PhysicalOperator &o
 	    (join_type == JoinType::SEMI || join_type == JoinType::ANTI || join_type == JoinType::MARK)) {
 		insert_duplicate_keys = false;
 	}
+	use_build_deduplication = !insert_duplicate_keys && condition_types.size() == 1 && build_types.empty() &&
+	                          !conditions[0].GetLHS().IsVolatile() &&
+	                          conditions[0].GetRHS().GetExpressionClass() == ExpressionClass::BOUND_REF &&
+	                          JoinBuildDeduplication::SupportsKey(condition_types[0]) &&
+	                          JoinBuildDeduplication::GetMode(context) == JoinBuildDeduplicationMode::PHYSICAL;
 
 	InitializePartitionMasks();
 	// Layout-dependent state is published lazily on the first Sink chunk (see FinishInitWithLayout).
@@ -715,6 +788,19 @@ void JoinHashTable::Build(PartitionedTupleDataAppendState &append_state, DataChu
 	// hash the keys and obtain an entry in the list
 	// note that we only hash the keys used in the equality comparison
 	Hash(keys, *current_sel, added_count, hash_values);
+	if (use_build_deduplication && mark_join_info.correlated_types.empty() &&
+	    !mark_join_info.uncorrelated_condition_rows) {
+		if (!build_deduplication_cache) {
+			build_deduplication_cache = make_uniq<JoinBuildDeduplicationCache>(BufferAllocator::Get(context));
+		}
+		// Selected hashes are stored at their original input indexes.
+		FlatVector::SetSize(hash_values, count_t(keys.size()));
+		added_count = build_deduplication_cache->Filter(keys.data[0], hash_values, *current_sel, added_count, sel);
+		current_sel = sel;
+		if (added_count == 0) {
+			return;
+		}
+	}
 	if (bloom_filter) {
 		bloom_filter->InsertHashes(hash_values, *current_sel, added_count);
 	}
@@ -2570,6 +2656,7 @@ static void ResetMarkJoinInfo(JoinHashTable &ht) {
 }
 
 void JoinHashTable::ResetForNewIterationSinglePartition() {
+	build_deduplication_cache.reset();
 	if (!layout_ptr) {
 		// layout was never published (no Sink chunk last iteration); the next first chunk will publish
 		return;

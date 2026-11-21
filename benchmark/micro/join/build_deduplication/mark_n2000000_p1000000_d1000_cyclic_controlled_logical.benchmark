@@ -1,0 +1,14 @@
+# name: benchmark/micro/join/build_deduplication/mark_n2000000_p1000000_d1000_cyclic_controlled_logical.benchmark
+# description: mark_n2000000_p1000000_d1000_cyclic_controlled_logical
+# group: [build_deduplication]
+
+template benchmark/micro/join/build_deduplication/build_deduplication.benchmark.in
+MODE=logical
+BUILD_ROWS=2000000
+PROBE_ROWS=1000000
+NDV=1000
+BUILD_EXPRESSION=i % 1000
+ORDER_BY=/* preserve input order */
+SETUP=SET perfect_ht_threshold TO 0; SET disabled_optimizers TO 'build_side_probe_side';
+QUERY=SELECT sum(CASE WHEN k IN (SELECT k FROM build) THEN 1 ELSE 0 END) FROM probe
+EXPECTED=500000

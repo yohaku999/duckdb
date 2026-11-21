@@ -1,0 +1,14 @@
+# name: benchmark/micro/join/build_deduplication/semi_n2000000_p4000000_d10_cyclic_natural_logical.benchmark
+# description: semi_n2000000_p4000000_d10_cyclic_natural_logical
+# group: [build_deduplication]
+
+template benchmark/micro/join/build_deduplication/build_deduplication.benchmark.in
+MODE=logical
+BUILD_ROWS=2000000
+PROBE_ROWS=4000000
+NDV=10
+BUILD_EXPRESSION=i % 10
+ORDER_BY=/* preserve input order */
+SETUP=SET enable_progress_bar TO false;
+QUERY=SELECT count(*) FROM probe p SEMI JOIN build b USING (k)
+EXPECTED=2000000

@@ -1,0 +1,14 @@
+# name: benchmark/micro/join/build_deduplication/semi_n2000000_p1000000_d4000_cyclic_controlled_physical.benchmark
+# description: semi_n2000000_p1000000_d4000_cyclic_controlled_physical
+# group: [build_deduplication]
+
+template benchmark/micro/join/build_deduplication/build_deduplication.benchmark.in
+MODE=physical
+BUILD_ROWS=2000000
+PROBE_ROWS=1000000
+NDV=4000
+BUILD_EXPRESSION=i % 4000
+ORDER_BY=/* preserve input order */
+SETUP=SET perfect_ht_threshold TO 0; SET disabled_optimizers TO 'build_side_probe_side';
+QUERY=SELECT count(*) FROM probe p SEMI JOIN build b USING (k)
+EXPECTED=500000

@@ -1,0 +1,22 @@
+# name: ${FILE_PATH}
+# description: ${DESCRIPTION}
+# group: [join-build-deduplication]
+
+name Join build deduplication
+group join-build-deduplication
+
+init
+SET VARIABLE join_build_deduplication = '${MODE}';
+SET enable_progress_bar = false;
+${SETUP}
+
+load
+CREATE TABLE build AS SELECT ${BUILD_EXPRESSION} AS k FROM range(${BUILD_ROWS}) t(i) ${ORDER_BY};
+CREATE TABLE probe AS SELECT ((i // 2 * 15485863) % ${NDV}) + (i % 2) * ${NDV} AS k FROM range(${PROBE_ROWS}) t(i);
+ANALYZE;
+
+run
+${QUERY}
+
+result I
+${EXPECTED}

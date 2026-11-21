@@ -1,0 +1,14 @@
+# name: benchmark/micro/join/build_deduplication/semi_n2000000_p1000000_d10000_shuffled_controlled_off.benchmark
+# description: semi_n2000000_p1000000_d10000_shuffled_controlled_off
+# group: [build_deduplication]
+
+template benchmark/micro/join/build_deduplication/build_deduplication.benchmark.in
+MODE=off
+BUILD_ROWS=2000000
+PROBE_ROWS=1000000
+NDV=10000
+BUILD_EXPRESSION=i % 10000
+ORDER_BY=ORDER BY hash(i)
+SETUP=SET perfect_ht_threshold TO 0; SET disabled_optimizers TO 'build_side_probe_side';
+QUERY=SELECT count(*) FROM probe p SEMI JOIN build b USING (k)
+EXPECTED=500000
