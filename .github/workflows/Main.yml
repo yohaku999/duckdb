@@ -190,7 +190,7 @@ jobs:
         run: |
           skip_tests="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.skip_tests || 'false' }}"
           python3 scripts/ci/job_stages.py \
-            --event "${{ github.event_name }}" \
+            --event "${{ github.event_name == 'workflow_dispatch' && 'push' || github.event_name }}" \
             --ref_name "${{ github.ref_name }}" \
             --default_branch "${{ github.event.repository.default_branch }}" \
             --repository "${{ github.repository }}" \
@@ -299,7 +299,7 @@ jobs:
       shell: bash
       env:
         CHANGED_TESTS_FILES: ${{ needs.prepare.outputs.changed_tests_files }}
-      run: printf '%s\n' "$CHANGED_TESTS_FILES" | sed '/^$/d' > "$RUNNER_TEMP/changed_tests.txt"
+      run: printf '%s\n' "$CHANGED_TESTS_FILES" 'test/optimizer/join_build_deduplication.test' | sed '/^$/d' > "$RUNNER_TEMP/changed_tests.txt"
 
     - name: Build DuckDB
       uses: duckdb/duckdb-ci/build-duckdb@main
@@ -712,7 +712,7 @@ jobs:
       shell: bash
       env:
         CHANGED_TESTS_FILES: ${{ needs.prepare.outputs.changed_tests_files }}
-      run: printf '%s\n' "$CHANGED_TESTS_FILES" | sed '/^$/d' > "$RUNNER_TEMP/changed_tests.txt"
+      run: printf '%s\n' "$CHANGED_TESTS_FILES" 'test/optimizer/join_build_deduplication.test' | sed '/^$/d' > "$RUNNER_TEMP/changed_tests.txt"
 
     - name: Build DuckDB
       uses: duckdb/duckdb-ci/build-duckdb@main
