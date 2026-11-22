@@ -175,10 +175,6 @@ jobs:
           rm -rf build/base/release
           tar -xzf build/base/release-artifact.tar.gz -C build/base
 
-      - name: Prepare benchmark data
-        if: ${{ matrix.data_setup }}
-        run: ${{ matrix.data_setup }}
-
       - name: Run regression benchmark
         run: |
           python scripts/regression/test_runner.py \
