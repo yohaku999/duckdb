@@ -6,7 +6,7 @@ Bench Micro CI job. No custom workflow, Python runner or runtime generation is
 needed. Push the `join-dedup-bench` branch to the fork, or manually dispatch its
 existing Main workflow with `duckdb_commit` set to the branch head. Manual
 dispatch uses the same compatibility build selection as a push for this
-experiment. The new correctness test is explicitly included in the smoke tests.
+experiment.
 
 Each of 43 workloads has three files: `off`, `logical` and `physical`. Only the
 43 `physical` files are registered for this measurement. Their

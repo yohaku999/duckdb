@@ -299,7 +299,7 @@ jobs:
       shell: bash
       env:
         CHANGED_TESTS_FILES: ${{ needs.prepare.outputs.changed_tests_files }}
-      run: printf '%s\n' "$CHANGED_TESTS_FILES" 'test/optimizer/join_build_deduplication.test' | sed '/^$/d' > "$RUNNER_TEMP/changed_tests.txt"
+      run: printf '%s\n' "$CHANGED_TESTS_FILES" | sed '/^$/d' > "$RUNNER_TEMP/changed_tests.txt"
 
     - name: Build DuckDB
       uses: duckdb/duckdb-ci/build-duckdb@main
@@ -712,7 +712,7 @@ jobs:
       shell: bash
       env:
         CHANGED_TESTS_FILES: ${{ needs.prepare.outputs.changed_tests_files }}
-      run: printf '%s\n' "$CHANGED_TESTS_FILES" 'test/optimizer/join_build_deduplication.test' | sed '/^$/d' > "$RUNNER_TEMP/changed_tests.txt"
+      run: printf '%s\n' "$CHANGED_TESTS_FILES" | sed '/^$/d' > "$RUNNER_TEMP/changed_tests.txt"
 
     - name: Build DuckDB
       uses: duckdb/duckdb-ci/build-duckdb@main
