@@ -133,7 +133,7 @@ SEMI JOIN (VALUES ('x'), ('x')) b(k) ON p.k = b.k;
 ----
 2
 
-# Hash-cache collisions must only reduce effectiveness, never lose a key.
+# Growth and hash collisions must never lose a key.
 query I
 SELECT count(*) FROM range(100000) p(k)
 SEMI JOIN (SELECT i % 100000 AS k FROM range(200000) b(i)) b ON p.k = b.k;
@@ -238,3 +238,51 @@ SELECT sum(info.rows::BIGINT) < 300000 FROM duckdb_logs_parsed('PhysicalOperator
 WHERE class = 'JoinHashTable' AND event = 'Build';
 ----
 true
+
+statement ok
+SET threads = 1;
+
+statement ok
+CALL truncate_duckdb_logs();
+
+statement ok
+CALL enable_logging('PhysicalOperator');
+
+# Growth must retain all 100,000 distinct keys, including colliding keys.
+query I
+SELECT count(*) FROM range(100000) p(k)
+SEMI JOIN (SELECT i % 100000 AS k FROM range(1000000) b(i)) b ON p.k = b.k;
+----
+100000
+
+statement ok
+CALL disable_logging();
+
+query I
+SELECT sum(info.rows::BIGINT) FROM duckdb_logs_parsed('PhysicalOperator')
+WHERE class = 'JoinHashTable' AND event = 'Build';
+----
+100000
+
+# Exceeding the set's capacity falls back to the normal Build.
+query I
+SELECT count(*) FROM range(300000) p(k)
+SEMI JOIN (SELECT i % 300000 AS k FROM range(600000) b(i)) b ON p.k = b.k;
+----
+300000
+
+statement ok
+SET memory_limit = '64MB';
+
+statement ok
+SET threads = 4;
+
+# The memory budget can force an earlier fallback without changing the result.
+query I
+SELECT count(*) FROM range(20000) p(k)
+SEMI JOIN (SELECT i % 10000 AS k FROM range(200000) b(i)) b ON p.k = b.k;
+----
+10000
+
+statement ok
+RESET memory_limit;

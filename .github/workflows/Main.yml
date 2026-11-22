@@ -374,7 +374,7 @@ jobs:
       duckdb_commit: ${{ needs.prepare.outputs.duckdb_commit }}
       duckdb_version: ${{ needs.prepare.outputs.duckdb_version }}
       build_current_release: false
-      base_hash: b3a028e6c89199f19dc18bb09899771473283624
+      base_hash: f7c2e9539daf25ab289c0d349caa3a58500653b2
       run_slow_tests: ${{ needs.prepare.outputs.run_slow_tests == 'true' }}
       runners: ${{ needs.prepare.outputs.runners }}
       runner_provider: ${{ needs.prepare.outputs.runner_provider }}

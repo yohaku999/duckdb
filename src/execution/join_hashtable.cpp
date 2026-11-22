@@ -18,6 +18,7 @@
 #include "duckdb/common/atomic.hpp"
 #include "duckdb/planner/joinside.hpp"
 #include "duckdb/optimizer/join_build_deduplication.hpp"
+#include "duckdb/parallel/task_scheduler.hpp"
 #include "duckdb/common/vector/vector_iterator.hpp"
 
 namespace duckdb {
@@ -29,8 +30,23 @@ using ProbeSpillLocalState = JoinHashTable::ProbeSpillLocalAppendState;
 
 class JoinBuildDeduplicationCache {
 public:
-	explicit JoinBuildDeduplicationCache(Allocator &allocator) : entries(allocator.Allocate(CAPACITY * ENTRY_SIZE)) {
-		memset(entries.get(), 0, entries.GetSize());
+	explicit JoinBuildDeduplicationCache(ClientContext &context) : allocator(BufferAllocator::Get(context)) {
+		auto workers = MaxValue<idx_t>(1, TaskScheduler::GetScheduler(context).NumberOfThreads());
+		auto budget = BufferManager::GetBufferManager(context).GetMaxMemory() / workers / MEMORY_BUDGET_DIVISOR;
+		if (budget < 2 * MIN_CAPACITY * ENTRY_SIZE) {
+			enabled = false;
+			return;
+		}
+		maximum_capacity = MIN_CAPACITY;
+		while (maximum_capacity < MAX_CAPACITY && 4 * maximum_capacity * ENTRY_SIZE <= budget) {
+			maximum_capacity *= 2;
+		}
+		capacity = maximum_capacity < INITIAL_CAPACITY ? maximum_capacity : INITIAL_CAPACITY;
+		entries = AllocateTable(capacity);
+	}
+
+	bool IsEnabled() const {
+		return enabled;
 	}
 
 	idx_t Filter(Vector &keys, Vector &hashes, const SelectionVector &input, idx_t count, SelectionVector &output) {
@@ -57,6 +73,57 @@ public:
 	}
 
 private:
+	AllocatedData AllocateTable(idx_t table_capacity) {
+		auto table = allocator.Allocate(table_capacity * ENTRY_SIZE);
+		memset(table.get() + table_capacity * (sizeof(uint64_t) + sizeof(hash_t)), 0, table_capacity);
+		return table;
+	}
+
+	static bool Occupied(const AllocatedData &table, idx_t table_capacity, idx_t slot) {
+		return table.get()[table_capacity * (sizeof(uint64_t) + sizeof(hash_t)) + slot] != 0;
+	}
+
+	static idx_t FindSlot(const AllocatedData &table, idx_t table_capacity, uint64_t key, hash_t hash) {
+		auto mask = table_capacity - 1;
+		auto slot = hash & mask;
+		while (Occupied(table, table_capacity, slot)) {
+			if (Load<uint64_t>(table.get() + slot * sizeof(uint64_t)) == key) {
+				break;
+			}
+			slot = (slot + 1) & mask;
+		}
+		return slot;
+	}
+
+	static void StoreKey(AllocatedData &table, idx_t table_capacity, idx_t slot, uint64_t key, hash_t hash) {
+		Store<uint64_t>(key, table.get() + slot * sizeof(uint64_t));
+		Store<hash_t>(hash, table.get() + table_capacity * sizeof(uint64_t) + slot * sizeof(hash_t));
+		table.get()[table_capacity * (sizeof(uint64_t) + sizeof(hash_t)) + slot] = 1;
+	}
+
+	bool Grow() {
+		if (capacity == maximum_capacity) {
+			// Retaining duplicates is safe; the normal join Build still handles them.
+			entries.Reset();
+			enabled = false;
+			return false;
+		}
+		auto new_capacity = capacity * 2;
+		auto new_entries = AllocateTable(new_capacity);
+		for (idx_t slot = 0; slot < capacity; slot++) {
+			if (!Occupied(entries, capacity, slot)) {
+				continue;
+			}
+			auto key = Load<uint64_t>(entries.get() + slot * sizeof(uint64_t));
+			auto hash = Load<hash_t>(entries.get() + capacity * sizeof(uint64_t) + slot * sizeof(hash_t));
+			auto new_slot = FindSlot(new_entries, new_capacity, key, hash);
+			StoreKey(new_entries, new_capacity, new_slot, key, hash);
+		}
+		entries = std::move(new_entries);
+		capacity = new_capacity;
+		return true;
+	}
+
 	template <class T>
 	idx_t FilterTyped(Vector &keys, Vector &hashes, const SelectionVector &input, idx_t count,
 	                  SelectionVector &output) {
@@ -74,23 +141,40 @@ private:
 				continue;
 			}
 			auto key = static_cast<uint64_t>(value.GetValue());
-			auto slot = hash_values[row].GetValue() & (CAPACITY - 1);
-			auto entry = entries.get() + slot * ENTRY_SIZE;
-			if (Load<bool>(entry) && Load<uint64_t>(entry + sizeof(bool)) == key) {
+			auto hash = hash_values[row].GetValue();
+			auto slot = FindSlot(entries, capacity, key, hash);
+			if (Occupied(entries, capacity, slot)) {
 				continue;
 			}
-			Store<bool>(true, entry);
-			Store<uint64_t>(key, entry + sizeof(bool));
+			if (entry_count == capacity / 2) {
+				if (!Grow()) {
+					for (; i < count; i++) {
+						output.set_index(result_count++, input.get_index(i));
+					}
+					return result_count;
+				}
+				slot = FindSlot(entries, capacity, key, hash);
+			}
+			StoreKey(entries, capacity, slot, key, hash);
+			entry_count++;
 			output.set_index(result_count++, row);
 		}
 		return result_count;
 	}
 
 private:
-	static constexpr idx_t CAPACITY = 16384;
-	static constexpr idx_t ENTRY_SIZE = sizeof(uint64_t) + sizeof(bool);
+	static constexpr idx_t MIN_CAPACITY = 256;
+	static constexpr idx_t INITIAL_CAPACITY = 16384;
+	static constexpr idx_t MAX_CAPACITY = 262144;
+	static constexpr idx_t ENTRY_SIZE = sizeof(uint64_t) + sizeof(hash_t) + sizeof(uint8_t);
+	static constexpr idx_t MEMORY_BUDGET_DIVISOR = 16;
+	Allocator &allocator;
 	AllocatedData entries;
+	idx_t capacity = 0;
+	idx_t maximum_capacity = 0;
+	idx_t entry_count = 0;
 	bool seen_null = false;
+	bool enabled = true;
 };
 
 JoinHashTable::SharedState::SharedState()
@@ -791,14 +875,16 @@ void JoinHashTable::Build(PartitionedTupleDataAppendState &append_state, DataChu
 	if (use_build_deduplication && mark_join_info.correlated_types.empty() &&
 	    !mark_join_info.uncorrelated_condition_rows) {
 		if (!build_deduplication_cache) {
-			build_deduplication_cache = make_uniq<JoinBuildDeduplicationCache>(BufferAllocator::Get(context));
+			build_deduplication_cache = make_uniq<JoinBuildDeduplicationCache>(context);
 		}
-		// Selected hashes are stored at their original input indexes.
-		FlatVector::SetSize(hash_values, count_t(keys.size()));
-		added_count = build_deduplication_cache->Filter(keys.data[0], hash_values, *current_sel, added_count, sel);
-		current_sel = sel;
-		if (added_count == 0) {
-			return;
+		if (build_deduplication_cache->IsEnabled()) {
+			// Selected hashes are stored at their original input indexes.
+			FlatVector::SetSize(hash_values, count_t(keys.size()));
+			added_count = build_deduplication_cache->Filter(keys.data[0], hash_values, *current_sel, added_count, sel);
+			current_sel = sel;
+			if (added_count == 0) {
+				return;
+			}
 		}
 	}
 	if (bloom_filter) {

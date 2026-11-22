@@ -5,7 +5,8 @@ These are ordinary DuckDB `.benchmark` files, registered in
 Bench Micro CI job. No custom workflow, Python runner or runtime generation is
 needed. Push the `join-dedup-bench` branch to the fork to run the CI.
 
-Each of 43 workloads has three files: `off`, `logical` and `physical`. Their
+Each of 43 workloads has three files: `off`, `logical` and `physical`. Only the
+43 `physical` files are registered for this measurement. Their
 shared template sets the PoC mode in `init`, loads data outside the timed section,
 executes the join, and checks its result using the standard benchmark runner.
 
@@ -23,19 +24,25 @@ The workloads cover:
 
 Probe keys alternate matching and nonmatching values. All three modes must
 produce the same independently specified count. `physical` is the current
-bounded thread-local cache, not a complete distinct set. Mode activation is
+bounded thread-local hash set with linear probing and growth. Keys are not
+evicted on collisions. The set starts with up to 16,384 slots, grows to at most
+262,144 slots, and keeps occupancy at or below one half. Stored hashes are reused
+during growth. A per-worker memory budget also limits capacity and accounts for
+the old and new allocations during growth. On reaching its capacity limit, the
+filter releases its memory and passes subsequent rows to the normal Build. This
+is not a globally unique Build table; cross-worker duplicates remain. Mode activation is
 forced on eligible joins; there is no NDV heuristic yet.
 
-The existing CI compares the Base and PR binaries for each file. Base has no PoC,
-so all three modes use its original behavior. On the PR binary, each file enables
-its named mode. Compare the three rows for the same workload to compare modes;
-Base-to-PR deltas show each mode's change relative to the original implementation.
-The standard Micro job uses two threads and a 6.5 GiB memory limit.
+The existing CI compares the old physical implementation (Base) against the
+improved physical implementation (PR), using the same 43 workloads. Neither
+logical nor off mode is timed in this run. The existing Regression matrix is
+restricted to Micro for this experiment. The standard Micro job uses two threads
+and a 6.5 GiB memory limit.
 
 For this fork experiment only, Main's existing `OVERRIDE_JOBS` selects the
 required release/relassert builds and regression jobs. Its `base_hash` pins the
-comparison to `b3a028e6c89199f19dc18bb09899771473283624`, immediately before the
-PoC. The Regression workflow honors an explicit base hash on fork pushes as well.
+comparison to `f7c2e9539daf25ab289c0d349caa3a58500653b2`, the previous physical PoC.
+The Regression workflow honors an explicit base hash on fork pushes as well.
 These experiment-specific CI selections should be removed before an upstream PR.
 
 Results appear in GitHub Actions → Main → regression / Bench Micro → Run

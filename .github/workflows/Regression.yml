@@ -145,27 +145,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Ingestion Perf
-            benchmark: .github/regression/ingestion.csv
           - name: Micro
             benchmark: .github/regression/micro.csv
-          - name: Parser
-            benchmark: .github/regression/parser.csv
-          - name: H2OAI (small)
-            benchmark: .github/regression/h2oai_small.csv
-          - name: IMDB
-            benchmark: .github/regression/imdb.csv
-          - name: CSV
-            benchmark: .github/regression/csv.csv
-          - name: RealNest
-            benchmark: .github/regression/realnest.csv
-            data_setup: |
-              mkdir -p duckdb_benchmark_data
-              python3 scripts/ci/retry.py -- wget -q https://blobs.duckdb.org/data/realnest/realnest.duckdb --output-document=duckdb_benchmark_data/real_nest.duckdb
-          - name: Recursive CTE
-            benchmark: benchmark/recursive_cte/recursive_cte.csv
-          - name: AoC24
-            benchmark: benchmark/aoc24/aoc24.csv
 
     steps:
       - uses: actions/checkout@v6
