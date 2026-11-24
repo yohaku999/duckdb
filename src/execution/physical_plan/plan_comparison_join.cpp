@@ -2,6 +2,7 @@
 #include "duckdb/execution/operator/join/physical_blockwise_nl_join.hpp"
 #include "duckdb/execution/operator/join/physical_cross_product.hpp"
 #include "duckdb/execution/operator/join/physical_hash_join.hpp"
+#include "duckdb/execution/operator/join/physical_key_set_join.hpp"
 #include "duckdb/execution/operator/join/physical_iejoin.hpp"
 #include "duckdb/execution/operator/join/physical_join.hpp"
 #include "duckdb/execution/operator/join/physical_nested_loop_join.hpp"
@@ -17,6 +18,7 @@
 #include "duckdb/main/settings.hpp"
 #include "duckdb/common/atomic.hpp"
 #include "duckdb/planner/joinside.hpp"
+#include "duckdb/optimizer/join_build_deduplication.hpp"
 
 namespace duckdb {
 static void RewriteJoinCondition(unique_ptr<Expression> &root_expr, idx_t offset) {
@@ -240,6 +242,19 @@ PhysicalOperator &PhysicalPlanGenerator::PlanComparisonJoin(LogicalComparisonJoi
 	bool prefer_range_joins = Settings::Get<PreferRangeJoinsSetting>(context);
 	prefer_range_joins = prefer_range_joins && can_iejoin;
 	if (has_equality && !prefer_range_joins) {
+		if (JoinBuildDeduplication::GetMode(context) == JoinBuildDeduplicationMode::PHYSICAL &&
+		    op.type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN && recursive_cte_tables.empty() &&
+		    !Settings::Get<DebugForceExternalSetting>(context) &&
+		    (op.join_type == JoinType::SEMI || op.join_type == JoinType::ANTI || op.join_type == JoinType::MARK) &&
+		    op.conditions.size() == 1 && !op.HasArbitraryConditions() && op.mark_types.empty() &&
+		    op.duplicate_eliminated_columns.empty()) {
+			auto &condition = op.conditions[0];
+			if (condition.GetComparisonType() == ExpressionType::COMPARE_EQUAL && !condition.GetLHS().IsVolatile() &&
+			    condition.GetRHS().GetExpressionClass() == ExpressionClass::BOUND_REF &&
+			    JoinBuildDeduplication::SupportsKey(condition.GetRHS().GetReturnType())) {
+				return Make<PhysicalKeySetJoin>(op, left, right);
+			}
+		}
 		// pass separately to PhysicalHashJoin
 		auto &join = Make<PhysicalHashJoin>(op, left, right, std::move(op.conditions), op.join_type,
 		                                    op.left_projection_map, op.right_projection_map, std::move(op.mark_types),

@@ -4835,19 +4835,20 @@ const StringUtil::EnumStringLiteral *GetPhysicalOperatorTypeValues() {
 		{ static_cast<uint32_t>(PhysicalOperatorType::CREATE_SECRET), "CREATE_SECRET" },
 		{ static_cast<uint32_t>(PhysicalOperatorType::RECURSIVE_KEY_JOIN), "RECURSIVE_KEY_JOIN" },
 		{ static_cast<uint32_t>(PhysicalOperatorType::SECURE_VIEW), "SECURE_VIEW" },
-		{ static_cast<uint32_t>(PhysicalOperatorType::MERGE_ACTION_SOURCE), "MERGE_ACTION_SOURCE" }
+		{ static_cast<uint32_t>(PhysicalOperatorType::MERGE_ACTION_SOURCE), "MERGE_ACTION_SOURCE" },
+		{ static_cast<uint32_t>(PhysicalOperatorType::KEY_SET_JOIN), "KEY_SET_JOIN" }
 	};
 	return values;
 }
 
 template<>
 const char* EnumUtil::ToChars<PhysicalOperatorType>(PhysicalOperatorType value) {
-	return StringUtil::EnumToString(GetPhysicalOperatorTypeValues(), 90, "PhysicalOperatorType", static_cast<uint32_t>(value));
+	return StringUtil::EnumToString(GetPhysicalOperatorTypeValues(), 91, "PhysicalOperatorType", static_cast<uint32_t>(value));
 }
 
 template<>
 PhysicalOperatorType EnumUtil::FromString<PhysicalOperatorType>(const char *value) {
-	return static_cast<PhysicalOperatorType>(StringUtil::StringToEnum(GetPhysicalOperatorTypeValues(), 90, "PhysicalOperatorType", value));
+	return static_cast<PhysicalOperatorType>(StringUtil::StringToEnum(GetPhysicalOperatorTypeValues(), 91, "PhysicalOperatorType", value));
 }
 
 const StringUtil::EnumStringLiteral *GetPhysicalTableScanExecutionStrategyValues() {

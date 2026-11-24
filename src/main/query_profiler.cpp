@@ -203,6 +203,7 @@ bool QueryProfiler::OperatorRequiresProfiling(const PhysicalOperatorType op_type
 	case PhysicalOperatorType::BLOCKWISE_NL_JOIN:
 	case PhysicalOperatorType::NESTED_LOOP_JOIN:
 	case PhysicalOperatorType::HASH_JOIN:
+	case PhysicalOperatorType::KEY_SET_JOIN:
 	case PhysicalOperatorType::CROSS_PRODUCT:
 	case PhysicalOperatorType::PIECEWISE_MERGE_JOIN:
 	case PhysicalOperatorType::IE_JOIN:

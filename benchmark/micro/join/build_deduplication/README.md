@@ -26,25 +26,35 @@ The workloads cover:
   Build-side swapping and perfect hash joins to isolate the general hash path.
 
 Probe keys alternate matching and nonmatching values. All three modes must
-produce the same independently specified count. `physical` is the current
-bounded thread-local hash set with linear probing and growth. Keys are not
-evicted on collisions. The set starts with up to 16,384 slots, grows to at most
-262,144 slots, and keeps occupancy at or below one half. Stored hashes are reused
-during growth. A per-worker memory budget also limits capacity and accounts for
-the old and new allocations during growth. On reaching its capacity limit, the
-filter releases its memory and passes subsequent rows to the normal Build. This
-is not a globally unique Build table; cross-worker duplicates remain. Mode activation is
-forced on eligible joins; there is no NDV heuristic yet.
+produce the same independently specified count. In the current `physical` mode,
+eligible joins use `KEY_SET_JOIN`: a zero-aggregate `GroupedAggregateHashTable`
+retains the distinct Build keys and is searched directly with `LookupGroups`.
+Each sink worker builds its own table. Combine adopts the first table and merges
+other workers' distinct keys into it; the final table is immutable during
+parallel Probe. There is no subsequent generic `JoinHashTable` build or scan of
+its saved Build rows. Build NULL presence is retained separately for MARK, and
+probe NULLs never match under ordinary equality.
 
-The existing CI compares the old physical implementation (Base) against the
-improved physical implementation (PR), using the same 43 workloads. Neither
-logical nor off mode is timed in this run. The existing Regression matrix is
-restricted to Micro for this experiment. The standard Micro job uses two threads
-and a 6.5 GiB memory limit.
+This first direct-lookup PoC handles single integer-key `=` SEMI, ANTI and
+uncorrelated MARK joins. Other joins keep the existing path. It is in-memory:
+there is no spill implementation, capacity cutoff or NDV activation heuristic.
+`debug_force_external` and recursive/delim joins use the existing path. Local
+Build and Probe are parallel, but merging local distinct sets is serialized.
+Existing min/max runtime-filter pushdown is retained; JoinHashTable-specific
+IN, Bloom and prefix-range filters and perfect hash join are not used by the new
+operator. The controlled cases isolate the key-set comparison, while the natural
+cases also measure these differences from the generic join path.
+
+The existing CI compares the improved physical prefilter (Base, approach 3)
+against direct key-set lookup (PR, approach 4), using the same 43 workloads.
+Neither logical nor off mode is timed in this run. The existing Regression
+matrix is restricted to Micro for this experiment. The standard Micro job uses
+two threads and a 6.5 GiB memory limit.
 
 For this fork experiment only, Main's existing `OVERRIDE_JOBS` selects the
 required release/relassert builds and regression jobs. Its `base_hash` pins the
-comparison to `f7c2e9539daf25ab289c0d349caa3a58500653b2`, the previous physical PoC.
+comparison to `667be65779c318f5f426159793230f5aa80ca308`, the improved physical
+prefilter.
 The Regression workflow honors an explicit base hash on fork pushes as well.
 These experiment-specific CI selections should be removed before an upstream PR.
 

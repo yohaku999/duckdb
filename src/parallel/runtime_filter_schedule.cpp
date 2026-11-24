@@ -13,6 +13,7 @@ static optional_ptr<PhysicalComparisonJoin> RuntimeFilterProducer(Pipeline &pipe
 	}
 	switch (sink->type) {
 	case PhysicalOperatorType::HASH_JOIN:
+	case PhysicalOperatorType::KEY_SET_JOIN:
 	case PhysicalOperatorType::NESTED_LOOP_JOIN:
 	case PhysicalOperatorType::PIECEWISE_MERGE_JOIN: {
 		auto &join = sink->Cast<PhysicalComparisonJoin>();
@@ -32,6 +33,7 @@ static bool HasJoinSink(Pipeline &pipeline) {
 	case PhysicalOperatorType::BLOCKWISE_NL_JOIN:
 	case PhysicalOperatorType::NESTED_LOOP_JOIN:
 	case PhysicalOperatorType::HASH_JOIN:
+	case PhysicalOperatorType::KEY_SET_JOIN:
 	case PhysicalOperatorType::CROSS_PRODUCT:
 	case PhysicalOperatorType::PIECEWISE_MERGE_JOIN:
 	case PhysicalOperatorType::IE_JOIN:

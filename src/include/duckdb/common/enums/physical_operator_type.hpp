@@ -135,6 +135,7 @@ enum class PhysicalOperatorType : uint8_t {
 	SECURE_VIEW,
 	//! Source of a MERGE INTO action pipeline. Keep appended to preserve existing enum values.
 	MERGE_ACTION_SOURCE,
+	KEY_SET_JOIN,
 };
 
 string PhysicalOperatorToString(PhysicalOperatorType type);
